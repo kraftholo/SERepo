@@ -1,0 +1,8 @@
+dataset/
+wandb/
+archive/
+__pycache__
+*.jpeg
+*.pt
+*.png
+*.out
