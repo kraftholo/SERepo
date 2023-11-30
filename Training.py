@@ -437,7 +437,7 @@ class Trainer():
                 wandb.finish()
 
     # Training non realtime spectral masking
-    def trainNonRT(self,train_dataloader,val_dataloader,dataConfig,modelSaveDir,wavFileTesting,wandbName,sweeping,useScheduler,debugFlag = False,useWandB = True,):
+    def trainNonRT(self,train_dataloader,val_dataloader,dataConfig,modelSaveDir,wavFileTesting,wandbName,sweeping,useScheduler,debugFlag = False,useWandB = True,scaleFactor = 2):
         print("Training non realtime:",wandbName)
         name = wandbName
         exampleNoisySTFTData,exampleCleanSpeech, exampleNoisySpeech = makeFileReadyNonRT(wavFileTesting,dataConfig)
@@ -485,8 +485,7 @@ class Trainer():
                         # print(f'modelInputs.dtype = {modelInputs.dtype}')
                         # print(f'modelInputs.shape = {modelInputs.shape}')
                         # print(f'targets.shape = {targets.shape}')
-                        
-
+                    
                         angleInfo = torch.angle(modelInputs)
                         # print(f'angleInfo.shape = {angleInfo.shape}')
 
@@ -502,26 +501,9 @@ class Trainer():
                             break
                         
                         # ModelInputs = ([BatchSize, 257, 376])
-                        
-                        # reshapedInput = modelInputsMag.unsqueeze(-1) # ([BatchSize, 257, 376, 1])
-                        # reshapedInput = reshapedInput.permute(0, 3, 1, 2) # ([BatchSize, 1, 257, 376])
-
-                        # print(f'reshapedInput.shape = {reshapedInput.shape}')
+                    
                         masksGenerated = self.model(modelInputsMag) 
-                        # print(f'masksGenerated.shape = {masksGenerated.shape}')
-
-                        # masksGenerated = masksGenerated.permute(0, 2, 3, 1) # ([BatchSize,257, 376, 1])
-                        # masksGenerated = masksGenerated.squeeze(-1) # ([BatchSize,257, 376])
-
-                        
-                        # Convert the mask to a PIL Image (Every 20th epoch a random batch is selected and all the masks are uploaded)
-
-                        # if (i == 0):
-                        #     # Intializing a plt plot
-                        #     fig, ax = plt.plot()
-                        #     im = ax.imshow(masksGenerated[0].cpu().detach().numpy(), cmap='viridis')
-                        #     cbar = plt.colorbar(im)
-
+                   
                         if(i%20 == 0 and batchNum == randomSelectedBatch):
                             uploadExampleMasks = []
                             printMask = True
@@ -534,35 +516,30 @@ class Trainer():
                                     print(f'Batch_{batchNum}: Mask_{index+1} mask values = {mask}')
                                     printMask = False
 
-                            #     mask = mask.cpu().detach().numpy()
-                            #     im.set_array(mask)
-                            #     cbar.update_normal(im)
-                                
-                            #     plt.savefig(f'images/Epoch{i+1}_B:{batchNum}_mask.png')
-                            #     plt.close()
-
-
-                    
-                            #     # if(useWandB):
-                            #         # image = wandb.Image(pil_image,caption=f'Mask_{index+1}_ from random batchnum = {str(batchNum)}')
-                            #         # uploadExampleMasks.append(image)
-                            
-                            # if(useWandB):
-                            #     wandb.log({"mask_images": uploadExampleMasks})
-
-                        
                         outputs = modelInputsMag*masksGenerated
+                        # outputs = torch.abs(masksGenerated)
 
                         # print(f'outputs.shape = {outputs.shape}')
 
                         # Have to take MSE loss in the REAL Frequency domain (not complex)
                         loss = self.loss_func(outputs, targetsMag)
 
-                        reconstructed_spectrogram = torch.mul(outputs, torch.exp(1j * angleInfo))
+                        reconstructed_spectrograms = torch.mul(outputs, torch.exp(1j * angleInfo))
+
+                        reconstructedAudios = scaleFactor * torch.istft(reconstructed_spectrograms, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
+                        targetAudios =  scaleFactor * torch.istft(targets, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
+                        noisyAudios  = scaleFactor * torch.istft(modelInputs, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
+                        
+                        #Check to see if the loss is being compared of okay audios
+                        if(useWandB and i%50 == 0):
+                            wandb.log({'InsideTrainingReconsAudio': wandb.Audio(reconstructedAudios[0].cpu().detach().numpy(), caption="Reconstructed Speech(insideTrainloop)", sample_rate= dataConfig.sample_rate)},step = i)
+                            wandb.log({'InsideTrainingCleanAudio': wandb.Audio(targetAudios[0].cpu().detach().numpy(), caption="Target Speech(insideTrainloop)", sample_rate= dataConfig.sample_rate)},step = i)
+                            wandb.log({'InsideTrainingNoisyAudio': wandb.Audio(noisyAudios[0].cpu().detach().numpy(), caption="Noisy Speech(insideTrainloop)", sample_rate= dataConfig.sample_rate)},step = i)
+
 
                         running_trainloss += loss
                         loss.backward()
-                        # self.optimizer.step()
+                        self.optimizer.step()
 
                     # <After an epoch>
                     avg_trainloss = running_trainloss / len(train_dataloader)
@@ -590,6 +567,7 @@ class Trainer():
                             # print(f'val_masksGenerated.shape = {val_masksGenerated.shape}')
 
                             val_outputs = val_modelInputsMag*val_masksGenerated
+                            # val_outputs = torch.abs(val_masksGenerated)
 
                             val_loss = self.loss_func(val_outputs, val_targetsMag)
 
@@ -727,17 +705,18 @@ class Trainer():
 
                         reconstructedAudios = scaleFactor * torch.istft(reconstructed_spectrograms, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
                         targetAudios =  scaleFactor * torch.istft(targets, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
-
+                        noisyAudios  = scaleFactor * torch.istft(modelInputs, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
                         #Check to see if the loss is being compared of okay audios
                         if(useWandB and i%50 == 0):
                             wandb.log({'InsideTrainingReconsAudio': wandb.Audio(reconstructedAudios[0].cpu().detach().numpy(), caption="Reconstructed Speech(insideTrainloop)", sample_rate= dataConfig.sample_rate)},step = i)
                             wandb.log({'InsideTrainingCleanAudio': wandb.Audio(targetAudios[0].cpu().detach().numpy(), caption="Target Speech(insideTrainloop)", sample_rate= dataConfig.sample_rate)},step = i)
+                            wandb.log({'InsideTrainingNoisyAudio': wandb.Audio(noisyAudios[0].cpu().detach().numpy(), caption="Noisy Speech(insideTrainloop)", sample_rate= dataConfig.sample_rate)},step = i)
 
                         loss = self.loss_func(reconstructedAudios, targetAudios)
 
                         running_trainloss += loss
                         loss.backward()
-                        # self.optimizer.step()
+                        self.optimizer.step()
 
                     # <After an epoch>
                     avg_trainloss = running_trainloss / len(train_dataloader)
