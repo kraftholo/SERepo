@@ -640,7 +640,7 @@ class Trainer():
         if(useWandB):
             wandb.finish()
 
-    def trainNonRTLossTD(self,train_dataloader,val_dataloader,dataConfig,modelSaveDir,wavFileTesting,wandbName,sweeping,useScheduler,debugFlag = False,useWandB = True,):
+    def trainNonRTLossTD(self,train_dataloader,val_dataloader,dataConfig,modelSaveDir,wavFileTesting,wandbName,sweeping,useScheduler,debugFlag = False,useWandB = True,scaleFactor = 2):
         print("Training non realtime:",wandbName)
         name = wandbName
         exampleNoisySTFTData,exampleCleanSpeech, exampleNoisySpeech = makeFileReadyNonRT(wavFileTesting,dataConfig)
@@ -705,26 +705,10 @@ class Trainer():
                             break
                         
                         # ModelInputs = ([BatchSize, 257, 376])
-                        
-                        # reshapedInput = modelInputsMag.unsqueeze(-1) # ([BatchSize, 257, 376, 1])
-                        # reshapedInput = reshapedInput.permute(0, 3, 1, 2) # ([BatchSize, 1, 257, 376])
-
-                        # print(f'reshapedInput.shape = {reshapedInput.shape}')
+        
                         masksGenerated = self.model(modelInputsMag) 
                         # print(f'masksGenerated.shape = {masksGenerated.shape}')
-
-                        # masksGenerated = masksGenerated.permute(0, 2, 3, 1) # ([BatchSize,257, 376, 1])
-                        # masksGenerated = masksGenerated.squeeze(-1) # ([BatchSize,257, 376])
-
-                        
-                        # Convert the mask to a PIL Image (Every 20th epoch a random batch is selected and all the masks are uploaded)
-
-                        # if (i == 0):
-                        #     # Intializing a plt plot
-                        #     fig, ax = plt.plot()
-                        #     im = ax.imshow(masksGenerated[0].cpu().detach().numpy(), cmap='viridis')
-                        #     cbar = plt.colorbar(im)
-
+                    
                         if(i%20 == 0 and batchNum == randomSelectedBatch):
                             uploadExampleMasks = []
                             printMask = True
@@ -737,34 +721,12 @@ class Trainer():
                                     print(f'Batch_{batchNum}: Mask_{index+1} mask values = {mask}')
                                     printMask = False
 
-                            #     mask = mask.cpu().detach().numpy()
-                            #     im.set_array(mask)
-                            #     cbar.update_normal(im)
-                                
-                            #     plt.savefig(f'images/Epoch{i+1}_B:{batchNum}_mask.png')
-                            #     plt.close()
 
-
-                    
-                            #     # if(useWandB):
-                            #         # image = wandb.Image(pil_image,caption=f'Mask_{index+1}_ from random batchnum = {str(batchNum)}')
-                            #         # uploadExampleMasks.append(image)
-                            
-                            # if(useWandB):
-                            #     wandb.log({"mask_images": uploadExampleMasks})
-
-                        
                         outputs = modelInputsMag*masksGenerated
                         reconstructed_spectrograms = torch.mul(outputs, torch.exp(1j * angleInfo))
 
-                        padded_reconsSpec = torch.zeros((reconstructed_spectrograms.shape[0], 257, reconstructed_spectrograms.shape[2]),dtype=torch.complex64)
-                        padded_reconsSpec[:, :256, :] = reconstructed_spectrograms
-
-                        padded_targets = torch.zeros((targetsMag.shape[0], 257, targetsMag.shape[2]),dtype=torch.complex64)
-                        padded_targets[:, :256, :] = targets
-
-                        reconstructedAudios = torch.istft(padded_reconsSpec, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
-                        targetAudios = torch.istft(padded_targets, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
+                        reconstructedAudios = scaleFactor * torch.istft(reconstructed_spectrograms, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
+                        targetAudios =  scaleFactor * torch.istft(targets, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
 
                         #Check to see if the loss is being compared of okay audios
                         if(useWandB and i%50 == 0):
@@ -805,14 +767,8 @@ class Trainer():
                             val_outputs = val_modelInputsMag*val_masksGenerated
                             val_reconstructed_spectrograms = torch.mul(val_outputs, torch.exp(1j * val_angleInfo))
 
-                            val_padded_reconsSpec = torch.zeros((val_reconstructed_spectrograms.shape[0], 257, val_reconstructed_spectrograms.shape[2]),dtype=torch.complex64)
-                            val_padded_reconsSpec[:, :256, :] = val_reconstructed_spectrograms
-
-                            val_padded_targets = torch.zeros((val_targetsMag.shape[0], 257, val_targetsMag.shape[2]),dtype=torch.complex64)
-                            val_padded_targets[:, :256, :] = val_targets
-
-                            val_reconstructedAudios = torch.istft(val_padded_reconsSpec, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
-                            val_targetAudios = torch.istft(val_padded_targets, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
+                            val_reconstructedAudios = scaleFactor * torch.istft(val_reconstructed_spectrograms, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
+                            val_targetAudios = scaleFactor * torch.istft(val_targets, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
 
                             val_loss = self.loss_func(val_reconstructedAudios, val_targetAudios)
 

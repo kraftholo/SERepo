@@ -382,12 +382,7 @@ class CustomDataloaderCreator():
                                         # center=True,
                                         # return_complex=True
                                         )
-
-                # TODO: Problem when odd number of freq bins (later in convolutions)
-                if(noisy_spectrogram.shape[0] % 2 != 0):
-                    noisy_spectrogram = noisy_spectrogram[:-1,:]
-                    clean_spectrogram = clean_spectrogram[:-1,:]    
-                    
+    
                 currSpectrogramData.append(noisy_spectrogram)
                 currTargets.append(clean_spectrogram)
 

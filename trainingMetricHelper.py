@@ -221,10 +221,6 @@ def makeFileReadyNonRT(wavFileName,dataConfig):
                                         # return_complex=True
                                         )
     
-    # TODO: Problem when odd number of freq bins (later in convolutions)
-    if(noisy_spectrogram.shape[0] % 2 != 0):
-        noisy_spectrogram = noisy_spectrogram[:-1,:]
-    
     return noisy_spectrogram,cleanSpeech,noisySpeech
 
     
