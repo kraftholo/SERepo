@@ -225,45 +225,6 @@ def makeFileReadyNonRT(wavFileName,dataConfig):
 
     
 
-# def runInferenceNonRT(ordDict,model,dataConfig,exampleNoisySTFTData):
-#     print("runInferenceNonRT()")
-#     model.load_state_dict(ordDict)
-#     model.eval()
-
-#     mag = np.abs(exampleNoisySTFTData)
-#     angle = np.angle(exampleNoisySTFTData)
-
-#     magTensor = torch.from_numpy(mag).to(dataConfig.device)
-#     magTensor = magTensor.unsqueeze(-1) # ([257, 376, 1])
-#     magTensor = magTensor.permute(2, 0, 1) # ([1, 257, 376])
-#     print(f'magTensor.shape = {magTensor.shape}')
-
-#     maskGenerated = model(magTensor)
-#     print(f'masksGenerated.shape = {maskGenerated.shape}')
-
-#     permutedMask = maskGenerated.permute(1, 2, 0) # ([257, 376, 1])
-#     permutedMask = permutedMask.squeeze(-1) # ([257, 376])
-#     print(f'permutedMask.shape = {permutedMask.shape}')
-
-#     output = magTensor*maskGenerated
-#     print(f'output.shape = {output.shape}')
-
-#     reconstructed_spectrogram = torch.mul(output, torch.exp(1j * angle))
-#     reconstructed_spectrogram = reconstructed_spectrogram.numpy()
-#     print(f'reconstructed_spectrogram.shape = {reconstructed_spectrogram.shape}')
-
-#     _,denoisedSignal = istft(Zxx= reconstructed_spectrogram,
-#                              fs= dataConfig.sample_rate,
-#                             nfft= dataConfig.n_fft, 
-#                             # noverlap=self.dataconfig.stride_length, 
-#                             nperseg= dataConfig.frameSize, 
-#                             window='hann', 
-#                             # center=True,
-#                             # return_complex=True
-#                             )
-#     return denoisedSignal
-
-
 def runInferenceNonRT(ordDict,model,dataConfig,exampleNoisySTFTData):
     # print("runInferenceNonRT()")
     model.load_state_dict(ordDict)
@@ -284,6 +245,46 @@ def runInferenceNonRT(ordDict,model,dataConfig,exampleNoisySTFTData):
     masksGenerated = model(modelInputsMag) 
     
     outputs = modelInputsMag*masksGenerated
+
+    reconstructed_spectrogram = torch.mul(outputs, torch.exp(1j * angleInfo))
+    reconstructed_spectrogram = reconstructed_spectrogram.cpu().detach().numpy()
+    # print(f'runInferenceNonRT(): reconstructed_spectrogram.shape = {reconstructed_spectrogram.shape}')
+
+    reconstructed_spectrogram = reconstructed_spectrogram.squeeze(axis = 0)
+
+    _,denoisedSignal = istft(Zxx= reconstructed_spectrogram,
+                             fs= dataConfig.sample_rate,
+                            nfft= dataConfig.n_fft, 
+                            # noverlap=self.dataconfig.stride_length, 
+                            nperseg= dataConfig.frameSize, 
+                            window='hann', 
+                            # center=True,
+                            # return_complex=True
+                            )
+    return denoisedSignal
+
+
+def runInferenceNonRTMag(ordDict,model,dataConfig,exampleNoisySTFTData):
+    # print("runInferenceNonRT()")
+    model.load_state_dict(ordDict)
+    model.eval()
+
+    exampleNoisySTFTData = np.expand_dims(exampleNoisySTFTData, axis=0)
+    modelInputs = torch.from_numpy(exampleNoisySTFTData).to(dataConfig.device)
+    # print(f'runInferenceNonRT(): exampleNoisySTFTData.shape = {exampleNoisySTFTData.shape}')
+
+    angleInfo = torch.angle(modelInputs)
+    # print(f'angleInfo.shape = {angleInfo.shape}')
+
+    if(dataConfig.dtype == torch.float32):
+        modelInputsMag = torch.abs(modelInputs).float()
+    else:
+        modelInputsMag = torch.abs(modelInputs).double()
+
+    masksGenerated = model(modelInputsMag) 
+    
+    # outputs = modelInputsMag*masksGenerated
+    outputs = torch.abs(masksGenerated)
 
     reconstructed_spectrogram = torch.mul(outputs, torch.exp(1j * angleInfo))
     reconstructed_spectrogram = reconstructed_spectrogram.cpu().detach().numpy()

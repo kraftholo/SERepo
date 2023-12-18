@@ -22,7 +22,7 @@ from collections import OrderedDict
 import wandb
 import copy
 from plottingHelper import compareTwoAudios
-from trainingMetricHelper import returnPesqScore,makeFileReady, makeFileReadyNonRT,runInferenceWithModel,runInferenceWithModel2,runInferenceNonRT
+from trainingMetricHelper import returnPesqScore,makeFileReady, makeFileReadyNonRT,runInferenceWithModel,runInferenceWithModel2,runInferenceNonRT,runInferenceNonRTMag
 
 class Trainer():
 
@@ -701,6 +701,7 @@ class Trainer():
 
 
                         outputs = modelInputsMag*masksGenerated
+                        # outputs = torch.abs(masksGenerated)
                         reconstructed_spectrograms = torch.mul(outputs, torch.exp(1j * angleInfo))
 
                         reconstructedAudios = scaleFactor * torch.istft(reconstructed_spectrograms, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
@@ -744,6 +745,7 @@ class Trainer():
                             # print(f'val_masksGenerated.shape = {val_masksGenerated.shape}')
 
                             val_outputs = val_modelInputsMag*val_masksGenerated
+                            # val_outputs = torch.abs(val_masksGenerated)
                             val_reconstructed_spectrograms = torch.mul(val_outputs, torch.exp(1j * val_angleInfo))
 
                             val_reconstructedAudios = scaleFactor * torch.istft(val_reconstructed_spectrograms, n_fft=dataConfig.n_fft, hop_length=dataConfig.frameSize//2, win_length=dataConfig.frameSize, window=torch.hann_window(dataConfig.frameSize))
